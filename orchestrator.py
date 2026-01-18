@@ -342,8 +342,7 @@ def main():
     repo = os.getenv("GITHUB_REPOSITORY")
     if token and repo and "pull" in os.getenv("GITHUB_REF", ""):
         pr_num = os.getenv("GITHUB_REF").split("/")[-2]
-        url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/issues/{pr_num}/comments"
-
+        url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
         # Check for existing comment to update
         try:
             old_comments = requests.get(
