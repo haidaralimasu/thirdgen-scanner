@@ -56,7 +56,7 @@ def query_gemini(prompt):
     if not GEMINI_API_KEY:
         return None
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         headers = {"Content-Type": "application/json"}
         # Increased timeout for long POCs
@@ -282,7 +282,8 @@ def main():
     if token and repo and "pull" in os.getenv("GITHUB_REF", ""):
         try:
             pr_num = os.getenv("GITHUB_REF").split("/")[-2]
-            url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/issues/{pr_num}/comments"
+            # ✅ CORRECT CODE (Copy this exactly)
+            url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
             headers = {"Authorization": f"token {token}",
                        "Accept": "application/vnd.github.v3+json"}
 
