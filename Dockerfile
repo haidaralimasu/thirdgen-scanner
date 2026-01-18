@@ -35,8 +35,11 @@ RUN pip3 install solc-select slither-analyzer
 # Install Mythril (The Sniper) - Standalone to prevent numpy conflicts
 RUN pip3 install mythril
 
-# Install Wake (The Modern Scanner)
-RUN pip3 install eth-wake
+RUN wget https://github.com/crytic/echidna/releases/download/v2.2.3/echidna-test-2.2.3-Ubuntu-22.04.tar.gz \
+    && tar -xvf echidna-test-2.2.3-Ubuntu-22.04.tar.gz \
+    && mv echidna-test /usr/local/bin/echidna \
+    && chmod +x /usr/local/bin/echidna \
+    && rm echidna-test-2.2.3-Ubuntu-22.04.tar.gz
 
 # Install Halmos (Formal Verification)
 RUN pip3 install halmos
