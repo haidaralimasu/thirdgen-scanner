@@ -3,21 +3,53 @@ import json
 import os
 import requests
 import sys
+import glob
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION & CONSTANTS ---
 TIMEOUT_SLITHER = 300
-TIMEOUT_ECHIDNA = 600
+TIMEOUT_MYTHRIL = 600  # 10 mins max per file for deep scan
+TIMEOUT_ADERYN = 120
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Default paths to ignore if config is missing
+DEFAULT_EXCLUDES = ["lib/", "node_modules/", "test/", "script/", "mock/"]
+
+# --- HELPER: LOAD CONFIG ---
+
+
+def load_config():
+    config = {
+        "exclude_paths": DEFAULT_EXCLUDES,
+        "solc_version": "0.8.25"
+    }
+
+    if os.path.exists("thirdgen.config.json"):
+        try:
+            with open("thirdgen.config.json", "r") as f:
+                user_conf = json.load(f)
+                # Merge user config with defaults
+                if "exclude_paths" in user_conf:
+                    config["exclude_paths"] = user_conf["exclude_paths"]
+                if "solc_version" in user_conf:
+                    config["solc_version"] = user_conf["solc_version"]
+        except Exception as e:
+            print(f"⚠️ Could not load config: {e}")
+
+    return config
 
 # --- HELPER: RUN COMMAND ---
 
 
-def run_command(command):
+def run_command(command, timeout=300):
     try:
-        # Check if tool exists first
         if not command or not command[0]:
             return None
-        return subprocess.run(command, capture_output=True, text=True, timeout=300).stdout
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=timeout)
+        return result.stdout
+    except subprocess.TimeoutExpired:
+        print(f"⏰ Command timed out: {' '.join(command)}")
+        return None
     except Exception as e:
         print(f"⚠️ Command failed: {e}")
         return None
@@ -32,7 +64,6 @@ def query_gemini(prompt):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         headers = {"Content-Type": "application/json"}
-
         res = requests.post(url, json=payload, headers=headers, timeout=30)
         if res.status_code == 200:
             return res.json()['candidates'][0]['content']['parts'][0]['text']
@@ -40,226 +71,297 @@ def query_gemini(prompt):
         return None
     return None
 
-# --- HELPER: GET SOURCE CODE (Moved here to fix Syntax Error) ---
+# --- HELPER: GET SOURCE CODE ---
 
 
-def get_src(element):
+def get_src(file_path):
     try:
-        path = element['source_mapping']['filename_absolute']
-        if os.path.exists(path):
-            with open(path, 'r') as f:
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
                 return f.read()
     except:
         pass
     return ""
 
-# --- FEATURE 1: AUTO-SURGEON (AI REMEDIATION) ---
+# --- FEATURE: SMART ANALYSIS (Exploit + Fix) ---
 
 
-def generate_fix(issue, source_code):
-    print(f"🚑 Generating fix for: {issue['description'][:50]}...")
+def analyze_issue(issue, source_code):
+    print(f"🧠 Analyzing: {issue['description'][:50]}...")
 
     prompt = f"""
-    You are a Solidity Security Expert.
+    You are a Black Hat Hacker turned Security Auditor.
+    
     VULNERABILITY: {issue['description']}
     FILE: {issue['file']}
-    
-    BROKEN CODE SNIPPET:
-    {source_code}
-    
-    TASK:
-    Rewrite the code to FIX this specific vulnerability.
-    1. Return ONLY the fixed Solidity code block.
-    2. Do NOT explain.
-    """
-
-    fix = query_gemini(prompt)
-    if fix:
-        return fix.replace("```solidity", "").replace("```", "").strip()
-    return None
-
-# --- FEATURE 2: THE JUDGE (FALSE POSITIVE FILTER) ---
-
-
-def check_false_positive(issue, source_code):
-    if issue['severity'] not in ["High", "Critical"]:
-        return False
-
-    print(f"⚖️ Judging validity of: {issue['description'][:50]}...")
-
-    prompt = f"""
-    You are a Senior Smart Contract Auditor.
-    VULNERABILITY: {issue['description']}
     CODE:
     {source_code}
     
-    QUESTION: Is this a REAL vulnerability or a FALSE POSITIVE?
-    Answer "REAL" or "FALSE".
+    OUTPUT FORMAT (Markdown):
+    **Exploit Scenario:**
+    (Explain simply how a hacker would exploit this in 2 sentences)
+    
+    **Fixed Code:**
+    ```solidity
+    (The corrected code only)
+    ```
     """
 
-    verdict = query_gemini(prompt)
-    if verdict and "FALSE" in verdict.upper():
-        print("🚫 AI dismissed this as a False Positive.")
-        return True
-    return False
+    analysis = query_gemini(prompt)
+    if analysis:
+        return analysis.replace("```markdown", "").strip()
+    return None
 
-# --- MAIN SCAN LOGIC ---
+# --- STEP 1: SLITHER (STATIC ANALYSIS) ---
 
 
-def step_slither_enhanced():
+def step_slither(exclude_paths):
     print("🔍 Running Slither...")
     cmd = ["slither", ".", "--json", "-"]
-    stdout = run_command(cmd)
+    stdout = run_command(cmd, TIMEOUT_SLITHER)
 
     issues = []
-    gas_issues = []
 
     if stdout:
         try:
-            # Parse JSON output from Slither
-            # Slither sometimes outputs logs before JSON, so we find the first '{'
             start = stdout.find('{')
             end = stdout.rfind('}') + 1
-            if start == -1 or end == -1:
-                return [], []
+            if start != -1 and end != -1:
+                data = json.loads(stdout[start:end])
+                detectors = data.get("results", {}).get("detectors", [])
 
-            json_str = stdout[start:end]
-            data = json.loads(json_str)
+                for i in detectors:
+                    # FILTER: Check if file is in excluded paths
+                    file_path = i.get("elements", [{}])[0].get(
+                        "source_mapping", {}).get("filename_relative", "")
 
-            detectors = data.get("results", {}).get("detectors", [])
+                    if any(ignored in file_path for ignored in exclude_paths):
+                        continue
 
-            for i in detectors:
-                check_type = i.get("check", "Unknown")
+                    minified = {
+                        "tool": "Slither",
+                        "severity": i.get("impact", "Unknown"),
+                        "file": file_path,
+                        "description": i.get("description", ""),
+                        "check": i.get("check", "Unknown")
+                    }
 
-                # Basic issue object
-                minified = {
-                    "tool": "slither",
-                    "severity": i.get("impact", "Unknown"),
-                    "file": i.get("elements", [{}])[0].get("source_mapping", {}).get("filename_relative", "Unknown"),
-                    "description": i.get("description", ""),
-                    "check": check_type
-                }
+                    # AI Enrichment
+                    if GEMINI_API_KEY and minified['severity'] in ["High", "Critical"]:
+                        src = get_src(file_path)
+                        if src:
+                            minified['analysis'] = analyze_issue(minified, src)
 
-                # A. Gas Optimization Path
-                gas_detectors = ["external-function", "const-functions",
-                                 "immutable-states", "dead-code", "cache-array-length"]
-                if check_type in gas_detectors:
-                    minified['severity'] = "Optimization"
-                    gas_issues.append(minified)
-                    continue
-
-                # B. Security Path
-                if GEMINI_API_KEY and minified['severity'] in ["High", "Critical"]:
-                    element = i.get("elements", [{}])[0]
-                    src = get_src(element)
-
-                    if src:
-                        # 1. AI Filter
-                        if check_false_positive(minified, src):
-                            continue
-                        # 2. AI Fix
-                        minified['fix'] = generate_fix(minified, src)
-
-                issues.append(minified)
+                    issues.append(minified)
 
         except Exception as e:
-            print(f"⚠️ Error parsing Slither output: {e}")
+            print(f"⚠️ Error parsing Slither: {e}")
 
-    return issues, gas_issues
+    return issues
 
-# --- GENERATE MARKDOWN REPORT ---
+# --- STEP 2: ADERYN (RUST ANALYSIS) ---
 
 
-def generate_report(security_issues, gas_issues):
-    md = ["# 🛡️ Security & Gas Report"]
+def step_aderyn(exclude_paths):
+    print("🦜 Running Aderyn...")
 
-    # 1. SECURITY SECTION
-    md.append(f"\n## 🔴 Security Findings ({len(security_issues)})")
-    if not security_issues:
-        md.append("✅ No security vulnerabilities found.")
-    else:
-        for i in security_issues:
-            sev = i['severity']
-            md.append(f"### {sev}: {i['check']}")
+    # Aderyn has a native flag '-x' for excludes (comma separated)
+    # We join our list "lib/, test/" -> "lib/,test/"
+    exclude_string = ",".join(exclude_paths)
+
+    cmd = ["aderyn", ".", "-o", "report.json", "-x", exclude_string]
+    run_command(cmd, TIMEOUT_ADERYN)
+
+    issues = []
+    if os.path.exists("report.json"):
+        try:
+            with open("report.json", "r") as f:
+                data = json.load(f)
+
+            # Aderyn JSON structure: "high_issues": { "issues": [...] }
+            severity_map = {
+                "critical_issues": "Critical",
+                "high_issues": "High",
+                "medium_issues": "Medium"
+            }
+
+            for key, severity_label in severity_map.items():
+                group = data.get(key, {}).get("issues", [])
+                for i in group:
+                    # Aderyn typically handles exclusion internally with -x,
+                    # but we double check the file path just in case
+                    instances = i.get("instances", [])
+                    if not instances:
+                        continue
+
+                    file_path = instances[0].get("contract_path", "")
+
+                    # Double-check exclusion (redundancy is safety)
+                    if any(ignored in file_path for ignored in exclude_paths):
+                        continue
+
+                    issues.append({
+                        "tool": "Aderyn",
+                        "severity": severity_label,
+                        "file": file_path,
+                        "description": i.get("description", ""),
+                        "check": i.get("title", "Unknown")
+                    })
+
+            # Cleanup
+            os.remove("report.json")
+
+        except Exception as e:
+            print(f"⚠️ Error parsing Aderyn: {e}")
+
+    return issues
+
+# --- STEP 3: MYTHRIL (SYMBOLIC EXECUTION) ---
+
+
+def step_mythril(exclude_paths):
+    print("🪄 Running Mythril (Deep Scan)...")
+    issues = []
+
+    # 1. FIND FILES: Mythril is slow, so we only run it on valid source files
+    # We walk the directory and manually filter files
+    targets = []
+    for root, dirs, files in os.walk("."):
+        # Remove excluded dirs from traversal
+        dirs[:] = [d for d in dirs if not any(
+            x in os.path.join(root, d) for x in exclude_paths)]
+
+        for file in files:
+            if file.endswith(".sol"):
+                full_path = os.path.join(root, file)
+                # Extra check: ensure path string doesn't contain excluded keywords
+                if not any(ignored in full_path for ignored in exclude_paths):
+                    targets.append(full_path)
+
+    if not targets:
+        print("ℹ️ No target files found for Mythril.")
+        return []
+
+    print(f"ℹ️ Mythril targeting {len(targets)} files: {targets}")
+
+    # 2. RUN SCAN PER FILE
+    for target in targets:
+        print(f"   - Scanning {target}...")
+        cmd = ["myth", "analyze", target,
+               "--execution-timeout", "120", "-o", "json"]
+        stdout = run_command(cmd, TIMEOUT_MYTHRIL)
+
+        if stdout:
+            try:
+                # Mythril output can be messy (logs + JSON). Find the JSON object.
+                start = stdout.find('{')
+                end = stdout.rfind('}') + 1
+                if start != -1:
+                    data = json.loads(stdout[start:end])
+                    for bug in data.get("issues", []):
+                        issues.append({
+                            "tool": "Mythril",
+                            "severity": bug.get("severity", "Medium"),
+                            "file": target,
+                            "description": bug.get("description", ""),
+                            "check": bug.get("swc-id", "Unknown")
+                        })
+            except Exception:
+                pass  # Fail silently on parse error
+
+    return issues
+
+# --- GENERATE REPORT ---
+
+
+def generate_report(all_issues):
+    if not all_issues:
+        return "✅ No critical security issues found in source files."
+
+    md = ["# 🛡️ ThirdGen Security Report\n"]
+
+    # Sort by severity
+    critical = [i for i in all_issues if i['severity'] in ["Critical", "High"]]
+    medium = [i for i in all_issues if i['severity'] == "Medium"]
+
+    md.append(
+        f"**Scan Summary:** Found {len(critical)} Critical/High and {len(medium)} Medium issues.\n")
+
+    # Helper to render list
+    def render_list(issue_list):
+        for i in issue_list:
+            icon = "🔴" if i['severity'] in ["High", "Critical"] else "⚠️"
+            md.append(
+                f"### {icon} [{i['tool']}] {i['severity']}: {i['check']}")
             md.append(f"**File:** `{i['file']}`")
-            md.append(f"**Description:** {i['description']}")
+            md.append(f"**Description:** {i['description']}\n")
 
-            if i.get('fix'):
-                md.append(
-                    "\n<details><summary><b>🤖 AI Suggested Fix (Click to view)</b></summary>")
-                md.append(f"\n```solidity\n{i['fix']}\n```\n")
-                md.append("</details>\n")
-            md.append("---")
+            if i.get('analysis'):
+                md.append(f"{i['analysis']}\n")
 
-    # 2. GAS OPTIMIZATION SECTION
-    md.append(f"\n## ⛽ Gas Optimizations ({len(gas_issues)})")
-    if not gas_issues:
-        md.append("✅ Code is fully optimized.")
-    else:
-        md.append("| Optimization | File | Savings Hint |")
-        md.append("|---|---|---|")
-        for i in gas_issues:
-            desc = i['description'].split(":")[0]
-            md.append(f"| {i['check']} | `{i['file']}` | {desc} |")
+            md.append("---\n")
+
+    if critical:
+        md.append("## 🚨 Critical & High Findings")
+        render_list(critical)
+
+    if medium:
+        md.append("## ⚠️ Medium Findings")
+        render_list(medium)
 
     return "\n".join(md)
-
-# --- POST COMMENT TO GITHUB ---
-
-
-def post_github_comment(report_body):
-    token = os.getenv("GITHUB_TOKEN")
-    repo = os.getenv("GITHUB_REPOSITORY")
-    pr_num = os.getenv("GITHUB_REF").split("/")[-2]  # refs/pull/123/merge
-
-    # Check if this is a PR run
-    if not token or not repo or "pull" not in os.getenv("GITHUB_REF", ""):
-        print("ℹ️ Not a PR or no token. Skipping comment.")
-        return
-
-    print(f"💬 Posting comment to PR #{pr_num}...")
-    url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    # 1. Find existing bot comment to update (avoid spam)
-    try:
-        existing_comments = requests.get(url, headers=headers).json()
-        for comment in existing_comments:
-            if "🛡️ Security & Gas Report" in comment.get("body", ""):
-                # Update existing
-                update_url = f"https://api.github.com/repos/{repo}/issues/comments/{comment['id']}"
-                requests.patch(update_url, json={
-                               "body": report_body}, headers=headers)
-                print("✅ Comment updated!")
-                return
-    except:
-        pass
-
-    # 2. Create new comment
-    requests.post(url, json={"body": report_body}, headers=headers)
-    print("✅ Comment posted!")
 
 # --- MAIN ---
 
 
 def main():
-    print("🚀 STARTING ENHANCED SCAN...")
+    print("🚀 STARTING THIRDGEN SCAN...")
 
-    # 1. Run Slither
-    sec_issues, gas_issues = step_slither_enhanced()
+    # 1. Load Config (excludes)
+    config = load_config()
+    exclude_paths = config["exclude_paths"]
+    print(f"🚫 Ignoring paths: {exclude_paths}")
 
-    # 2. Generate Report
-    report = generate_report(sec_issues, gas_issues)
+    all_issues = []
 
-    # 3. Post to GitHub
-    post_github_comment(report)
+    # 2. Run Tools
+    all_issues.extend(step_slither(exclude_paths))
+    all_issues.extend(step_aderyn(exclude_paths))
 
-    # 4. Save to file (for debugging)
+    # Only run Mythril if we have time/resources (optional toggle could go here)
+    all_issues.extend(step_mythril(exclude_paths))
+
+    # 3. Generate & Save
+    report = generate_report(all_issues)
     with open("report.md", "w") as f:
         f.write(report)
+    print("✅ Report Generated!")
+
+    # 4. Post to GitHub (if PR)
+    token = os.getenv("GITHUB_TOKEN")
+    repo = os.getenv("GITHUB_REPOSITORY")
+    if token and repo and "pull" in os.getenv("GITHUB_REF", ""):
+        pr_num = os.getenv("GITHUB_REF").split("/")[-2]
+        url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/issues/{pr_num}/comments"
+
+        # Check for existing comment to update
+        try:
+            old_comments = requests.get(
+                url, headers={"Authorization": f"token {token}"}).json()
+            for c in old_comments:
+                if "ThirdGen Security Report" in c.get("body", ""):
+                    patch_url = f"[https://api.github.com/repos/](https://api.github.com/repos/){repo}/issues/comments/{c['id']}"
+                    requests.patch(patch_url, json={"body": report}, headers={
+                                   "Authorization": f"token {token}"})
+                    print("✅ Comment Updated.")
+                    return
+        except:
+            pass
+
+        # Post new
+        requests.post(url, json={"body": report}, headers={
+                      "Authorization": f"token {token}"})
+        print("✅ Comment Posted.")
 
 
 if __name__ == "__main__":
