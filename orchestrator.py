@@ -79,64 +79,60 @@ def get_src(file_path):
         pass
     return ""
 
-# --- FEATURE: ELITE ANALYSIS (The "Best in Market" Prompt) ---
+# --- FEATURE: ELITE ANALYSIS (The "Best in Market" Prompt - Cyfrin Style) ---
 
 
 def analyze_issue(issue, source_code, issue_id):
     print(f"🧠 Analyzing Issue {issue_id}: {issue['description'][:50]}...")
 
     prompt = f"""
-    You are an Elite Smart Contract Security Researcher (top ranking on Code4rena/Sherlock).
-    You have found a Critical Vulnerability. Your job is to write the Audit Report.
+    You are an Elite Smart Contract Security Researcher (top ranking on Code4rena/Sherlock/Cyfrin).
+    You have found a vulnerability. Your job is to write the Audit Report finding in the EXACT Cyfrin format.
 
     --- CONTEXT ---
     VULNERABILITY TYPE: {issue['description']}
     FILE: {issue['file']}
+    CHECK: {issue['check']}
     SOURCE CODE:
     {source_code}
 
     --- TASK ---
-    Write a rigorous audit finding in the EXACT format below.
-    
-    --- REQUIRED FORMAT ---
-    
-    ### {issue_id} [Short Title of Bug]
+    Write a rigorous audit finding in the EXACT Cyfrin format below. Be precise and technical.
 
-    **Description:**
-    (Deep technical explanation of the root cause. Trace the execution flow. Explain WHY it is broken, referencing specific variables and lines.)
+    --- REQUIRED FORMAT (Follow EXACTLY) ---
 
-    **Vulnerable Code:**
+    **Description:** (Deep technical explanation of the root cause. Trace the execution flow. Explain WHY it is broken, referencing specific variables, functions, and lines. Be specific about what function in what contract has the issue.)
+
+    **Impact:** (Explain the real-world consequences. What can an attacker do? What funds are at risk? Be specific about severity.)
+
+    **Proof of Concept:**
+
+    <details>
+    <summary>Proof Of Code</summary>
+
+    Place the following into the test file.
+
     ```solidity
-    (Quote ONLY the specific lines that cause the bug. Do not dump the whole file.)
-    ```
-
-    **Proof of Concept (POC):**
-    (Write a complete, standalone Foundry test case. Assume 'Forge' environment. The test must demonstrate the exploit, e.g., stealing funds or freezing the contract.)
-    ```solidity
-    // SPDX-License-Identifier: MIT
-    pragma solidity ^0.8.0;
-    import "forge-std/Test.sol";
-    import "../src/{issue['file'].split('/')[-1]}";
-
-    contract ExploitTest is Test {{
-        // Setup and run exploit
-        function testExploit() public {{
-            // ... your exploit logic here ...
-        }}
+    function testExploit() public {{
+        // Write a complete, working Foundry test that demonstrates the vulnerability
+        // Include setup, attack execution, and assertions proving the exploit worked
     }}
     ```
 
-    **Recommendation:**
-    (Provide the specific architectural fix or code change required to prevent this.)
+    </details>
+
+    **Recommended Mitigation:** (Provide the specific fix with a diff code block showing before/after. Use + for additions and - for removals.)
+
+    ```diff
+    - // old vulnerable code
+    + // new fixed code
+    ```
     """
 
     analysis = query_gemini(prompt)
     if analysis:
         # Remove any main markdown wrappers if Gemini adds them
         clean = analysis.replace("```markdown", "").strip()
-        # If the AI included the header "### H-01", remove it so we can control formatting
-        if clean.startswith("###"):
-            clean = "\n".join(clean.split("\n")[1:])
         return clean
     return None
 
@@ -207,54 +203,249 @@ def step_aderyn(exclude_paths):
             pass
     return issues
 
-# --- GENERATE REPORT ---
+# --- GENERATE REPORT (Cyfrin Style) ---
+
+
+def get_report_header():
+    """Generate the Cyfrin-style report header with frontmatter and metadata."""
+    from datetime import datetime
+    today = datetime.now().strftime("%B %d, %Y")
+
+    header = f"""---
+title: Protocol Audit Report
+author: ThirdGen.io
+date: {today}
+header-includes:
+  - \\usepackage{{titling}}
+  - \\usepackage{{graphicx}}
+---
+
+\\begin{{titlepage}}
+    \\centering
+    \\begin{{figure}}[h]
+        \\centering
+        \\includegraphics[width=0.5\\textwidth]{{logo.pdf}}
+    \\end{{figure}}
+    \\vspace*{{2cm}}
+    {{\\Huge\\bfseries Protocol Audit Report\\par}}
+    \\vspace{{1cm}}
+    {{\\Large Version 1.0\\par}}
+    \\vspace{{2cm}}
+    {{\\Large\\itshape ThirdGen.io\\par}}
+    \\vfill
+    {{\\large \\today\\par}}
+\\end{{titlepage}}
+
+\\maketitle
+
+<!-- Your report starts here! -->
+
+Prepared by: [ThirdGen](https://thirdgen.io)
+Lead Auditors:
+- ThirdGen Security Team
+
+"""
+    return header
+
+
+def get_toc(high_issues, medium_issues, low_issues, info_issues):
+    """Generate dynamic Table of Contents based on findings."""
+    toc = ["# Table of Contents"]
+    toc.append("- [Table of Contents](#table-of-contents)")
+    toc.append("- [Protocol Summary](#protocol-summary)")
+    toc.append("- [Disclaimer](#disclaimer)")
+    toc.append("- [Risk Classification](#risk-classification)")
+    toc.append("- [Audit Details](#audit-details)")
+    toc.append("  - [Scope](#scope)")
+    toc.append("  - [Roles](#roles)")
+    toc.append("- [Executive Summary](#executive-summary)")
+    toc.append("  - [Issues found](#issues-found)")
+    toc.append("- [Findings](#findings)")
+
+    if high_issues:
+        toc.append("  - [High](#high)")
+        for idx, issue in enumerate(high_issues):
+            issue_id = f"H-{idx+1}"
+            title = f"`{issue['file'].split('/')[-1].replace('.sol', '')}::{issue['check']}` vulnerability"
+            anchor = f"#h-{idx+1}-{issue['check'].lower().replace(' ', '-').replace('_', '-')}"
+            toc.append(f"    - [\\[{issue_id}\\] {title}]({anchor})")
+
+    if medium_issues:
+        toc.append("  - [Medium](#medium)")
+        for idx, issue in enumerate(medium_issues):
+            issue_id = f"M-{idx+1}"
+            title = f"`{issue['file'].split('/')[-1].replace('.sol', '')}::{issue['check']}`"
+            anchor = f"#m-{idx+1}-{issue['check'].lower().replace(' ', '-').replace('_', '-')}"
+            toc.append(f"    - [\\[{issue_id}\\] {title}]({anchor})")
+
+    if low_issues:
+        toc.append("  - [Low](#low)")
+
+    if info_issues:
+        toc.append("  - [Informationals](#informationals)")
+
+    toc.append("")
+    return "\n".join(toc)
+
+
+def get_static_sections():
+    """Generate static sections: Protocol Summary, Disclaimer, Risk Classification, Audit Details."""
+    sections = """# Protocol Summary
+
+Protocol functionality and description will be added based on the specific audit scope.
+
+# Disclaimer
+
+The ThirdGen team makes all effort to find as many vulnerabilities in the code in the given time period, but holds no responsibilities for the findings provided in this document. A security audit by the team is not an endorsement of the underlying business or product. The audit was time-boxed and the review of the code was solely on the security aspects of the Solidity implementation of the contracts.
+
+# Risk Classification
+
+|            |        | Impact |        |     |
+| ---------- | ------ | ------ | ------ | --- |
+|            |        | High   | Medium | Low |
+|            | High   | H      | H/M    | M   |
+| Likelihood | Medium | H/M    | M      | M/L |
+|            | Low    | M      | M/L    | L   |
+
+We use the [CodeHawks](https://docs.codehawks.com/hawks-auditors/how-to-evaluate-a-finding-severity) severity matrix to determine severity. See the documentation for more details.
+
+# Audit Details
+
+## Scope
+
+Files in scope for this audit:
+
+```
+./src/
+```
+
+## Roles
+
+Roles will be documented based on the specific protocol being audited.
+
+"""
+    return sections
+
+
+def get_executive_summary(high_count, medium_count, low_count, info_count):
+    """Generate Executive Summary with issues table."""
+    total = high_count + medium_count + low_count + info_count
+
+    summary = f"""# Executive Summary
+
+## Issues found
+
+| Severity | Number of issues found |
+| -------- | ---------------------- |
+| High     | {high_count}                      |
+| Medium   | {medium_count}                      |
+| Low      | {low_count}                      |
+| Info     | {info_count}                      |
+| Total    | {total}                     |
+
+"""
+    return summary
 
 
 def generate_report(all_issues):
     if not all_issues:
-        return "✅ No critical security issues found."
+        return "✅ No security issues found."
 
-    # Filter for AI analysis (High/Critical only)
-    high_crit = [i for i in all_issues if i['severity']
-                 in ["High", "Critical"]]
-    medium = [i for i in all_issues if i['severity'] == "Medium"]
+    # Categorize issues by severity
+    high_issues = [i for i in all_issues if i['severity'] in ["High", "Critical"]]
+    medium_issues = [i for i in all_issues if i['severity'] == "Medium"]
+    low_issues = [i for i in all_issues if i['severity'] == "Low"]
+    info_issues = [i for i in all_issues if i['severity'] in ["Informational", "Info", "Optimization"]]
 
-    md = ["# 🛡️ ThirdGen Audit Report\n"]
+    md = []
 
-    md.append(
-        f"**Summary:** Found {len(high_crit)} High/Critical and {len(medium)} Medium issues.\n")
+    # Add header
+    md.append(get_report_header())
 
-    # PROCESS HIGH/CRITICAL WITH AI
-    if high_crit:
-        md.append("## 🚨 High & Critical Findings")
+    # Add Table of Contents
+    md.append(get_toc(high_issues, medium_issues, low_issues, info_issues))
 
-        for idx, issue in enumerate(high_crit):
-            issue_id = f"H-{str(idx+1).zfill(2)}"  # H-01, H-02
+    # Add static sections
+    md.append(get_static_sections())
+
+    # Add Executive Summary
+    md.append(get_executive_summary(len(high_issues), len(medium_issues), len(low_issues), len(info_issues)))
+
+    # Start Findings section
+    md.append("# Findings\n")
+
+    # PROCESS HIGH/CRITICAL
+    if high_issues:
+        md.append("## High\n")
+
+        for idx, issue in enumerate(high_issues):
+            issue_id = f"H-{idx+1}"
+            contract_name = issue['file'].split('/')[-1].replace('.sol', '')
+            title = f"`{contract_name}::{issue['check']}` vulnerability"
+
+            md.append(f"### [{issue_id}] {title}\n")
 
             # If we have an API Key, use AI to generate the full report
             if GEMINI_API_KEY:
                 src = get_src(issue['file'])
                 ai_report = analyze_issue(issue, src, issue_id)
                 if ai_report:
-                    # AI generated the full body
-                    md.append(f"### {issue_id} [{issue['check']}]")
                     md.append(ai_report)
-                    md.append("\n---\n")
+                    md.append("\n")
                     continue
 
             # Fallback if no AI or AI failed
-            md.append(f"### {issue_id} [{issue['check']}]")
-            md.append(f"**Description:** {issue['description']}")
-            md.append(f"**File:** `{issue['file']}`")
-            md.append("\n---\n")
+            md.append(f"**Description:** {issue['description']}\n")
+            md.append(f"**Impact:** This vulnerability could lead to loss of funds or protocol malfunction.\n")
+            md.append(f"**Proof of Concept:** Manual testing required.\n")
+            md.append(f"**Recommended Mitigation:** Review and fix the identified issue in `{issue['file']}`.\n")
 
-    # PROCESS MEDIUM (Standard List)
-    if medium:
-        md.append("## ⚠️ Medium Findings")
-        for idx, issue in enumerate(medium):
-            md.append(f"**M-{str(idx+1).zfill(2)} [{issue['check']}]**")
-            md.append(f"File: `{issue['file']}`")
-            md.append(f"Description: {issue['description']}\n")
+    # PROCESS MEDIUM
+    if medium_issues:
+        md.append("## Medium\n")
+
+        for idx, issue in enumerate(medium_issues):
+            issue_id = f"M-{idx+1}"
+            contract_name = issue['file'].split('/')[-1].replace('.sol', '')
+            title = f"`{contract_name}::{issue['check']}` issue"
+
+            md.append(f"### [{issue_id}] {title}\n")
+
+            if GEMINI_API_KEY:
+                src = get_src(issue['file'])
+                ai_report = analyze_issue(issue, src, issue_id)
+                if ai_report:
+                    md.append(ai_report)
+                    md.append("\n")
+                    continue
+
+            # Fallback
+            md.append(f"**Description:** {issue['description']}\n")
+            md.append(f"**Impact:** Medium severity issue that should be addressed.\n")
+            md.append(f"**Recommended Mitigation:** Review the issue in `{issue['file']}`.\n")
+
+    # PROCESS LOW
+    if low_issues:
+        md.append("## Low\n")
+
+        for idx, issue in enumerate(low_issues):
+            issue_id = f"L-{idx+1}"
+            contract_name = issue['file'].split('/')[-1].replace('.sol', '')
+
+            md.append(f"### [{issue_id}] `{contract_name}::{issue['check']}`\n")
+            md.append(f"**Description:** {issue['description']}\n")
+            md.append(f"**Recommended Mitigation:** Consider addressing this low severity issue.\n")
+
+    # PROCESS INFORMATIONAL
+    if info_issues:
+        md.append("## Informationals\n")
+
+        for idx, issue in enumerate(info_issues):
+            issue_id = f"I-{idx+1}"
+            contract_name = issue['file'].split('/')[-1].replace('.sol', '')
+
+            md.append(f"### [{issue_id}] `{contract_name}::{issue['check']}`\n")
+            md.append(f"**Description:** {issue['description']}\n")
 
     return "\n".join(md)
 
