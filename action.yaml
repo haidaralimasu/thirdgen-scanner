@@ -6,13 +6,15 @@ inputs:
   token:
     description: "GITHUB_TOKEN"
     required: true
+  gemini_api_key:
+    description: "Gemini API Key for AI analysis"
+    required: false
+    default: ""
 
 runs:
   using: "docker"
-  # CHANGE THIS LINE:
-  # Old: image: 'Dockerfile'
-  # New: point to the hosted image using docker:// protocol
   image: "docker://ghcr.io/haidaralimasu/thirdgen-scanner:latest"
 
   env:
     GITHUB_TOKEN: ${{ inputs.token }}
+    GEMINI_API_KEY: ${{ inputs.gemini_api_key }}

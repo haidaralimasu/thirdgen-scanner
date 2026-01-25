@@ -2,7 +2,8 @@ name: Publish Docker Image
 
 on:
   release:
-    types: [published] # Runs only when you publish a release (v1, v1.1, etc.)
+    types: [published]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -11,9 +12,10 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
-      packages: write # Required to upload to GHCR
+      packages: write
 
     steps:
       - name: Checkout repository
@@ -39,3 +41,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}

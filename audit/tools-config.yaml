@@ -1,0 +1,95 @@
+# ============================================================
+#           THIRDGEN SECURITY AUDIT CONFIGURATION
+# ============================================================
+
+# Contract Settings
+contracts:
+  path: "src/"                          # Where your .sol files are
+  solc_version: "0.8.20"                # Solidity compiler version
+  exclude_paths:
+    - "lib/"
+    - "node_modules/"
+    - "test/"
+    - "script/"
+    - "mock/"
+    - "mocks/"
+
+# LLM Settings
+ai:
+  enabled: true
+  provider: "gemini"
+  model: "gemini-1.5-flash"
+  api_key_env: "GEMINI_API_KEY"         # Environment variable name
+  analyze_only:                         # Only send these to AI (saves $)
+    - critical
+    - high
+    - medium
+  max_findings: 20                      # Max findings to analyze with AI
+  timeout: 90                           # Seconds per AI request
+
+# Tools Configuration
+tools:
+  slither:
+    enabled: true
+    cmd: "slither . --json -"
+    output: "results/slither.json"
+    format: "slither"
+    timeout: 300
+
+  aderyn:
+    enabled: true
+    cmd: "aderyn . -o {output}"
+    output: "results/aderyn.json"
+    format: "aderyn"
+    timeout: 120
+
+  mythril:
+    enabled: true
+    # Mythril requires explicit targets - set in mythril_targets below
+    cmd: "myth analyze {target} -o json"
+    output: "results/mythril.json"
+    format: "mythril"
+    timeout: null                       # No timeout (can be slow)
+    remappings_file: "remappings.json"
+
+  solhint:
+    enabled: true
+    cmd: "solhint 'src/**/*.sol' -f json"
+    output: "results/solhint.json"
+    format: "solhint"
+    timeout: 120
+
+# Mythril specific targets (required because myth needs explicit files)
+mythril_targets: []                     # e.g., ["src/Vault.sol", "src/Token.sol"]
+
+# Severity Normalization (all tools -> same scale)
+severity_map:
+  # Slither
+  "High": "high"
+  "Medium": "medium"
+  "Low": "low"
+  "Informational": "informational"
+  "Optimization": "informational"
+  # Mythril
+  "high": "high"
+  "medium": "medium"
+  "low": "low"
+  # Aderyn
+  "Critical": "critical"
+  # Solhint maps by number (1=warning, 2=error)
+
+# Report Settings
+report:
+  output: "results/report.md"
+  title: "Smart Contract Security Audit Report"
+  show_false_positives: false           # Hide AI-detected false positives
+  collapse_low_severity: true           # Put low/info in collapsible
+  include_raw_counts: true              # Show "Raw vs After AI Review"
+  include_code_snippets: true           # Include vulnerable code context
+  include_poc: true                     # Include Proof of Concept templates
+  include_mitigations: true             # Include fix recommendations
+
+# GitHub Integration
+github:
+  post_comment: true                    # Post report as PR comment
+  update_existing: true                 # Update existing comment instead of new

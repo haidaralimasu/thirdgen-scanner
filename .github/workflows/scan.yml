@@ -1,0 +1,26 @@
+name: Reusable Security Scan
+
+on:
+  workflow_call:
+    secrets:
+      GEMINI_API_KEY:
+        description: "Gemini API Key for AI analysis (optional)"
+        required: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ThirdGen Scanner
+        uses: haidaralimasu/thirdgen-scanner@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

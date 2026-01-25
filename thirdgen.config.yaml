@@ -1,0 +1,39 @@
+# ============================================================
+#           THIRDGEN SECURITY SCANNER - PROJECT CONFIG
+# ============================================================
+# Place this file in your project root to customize the scanner.
+# All settings are optional - defaults will be used if not specified.
+
+# Solidity compiler version
+solc_version: "0.8.20"
+
+# Paths to exclude from scanning
+exclude_paths:
+  - "lib/"
+  - "node_modules/"
+  - "test/"
+  - "script/"
+  - "mock/"
+  - "mocks/"
+
+# Severities to exclude from report (e.g., hide informational)
+exclude_severities: []
+  # - "informational"
+  # - "low"
+
+# Mythril configuration (disabled by default - it's slow)
+mythril:
+  enabled: false
+  targets: []
+    # - "src/Vault.sol"
+    # - "src/Token.sol"
+  remappings_file: "remappings.json"
+
+# AI enhancement settings
+ai:
+  enabled: true
+  analyze_severities:
+    - "critical"
+    - "high"
+    - "medium"
+  max_findings: 20
