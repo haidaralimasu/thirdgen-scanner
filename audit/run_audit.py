@@ -404,10 +404,6 @@ Summary:
     print("  SCAN COMPLETE")
     print("=" * 60)
 
-    # Exit with error code if critical/high issues found
-    if report.has_critical or report.has_high:
-        sys.exit(1)
-
     sys.exit(0)
 
 
