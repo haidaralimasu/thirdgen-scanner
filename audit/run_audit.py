@@ -85,8 +85,8 @@ def load_config(config_path: str = "audit/tools-config.yaml") -> dict:
 
             if "mythril" in user_config:
                 mythril_cfg = user_config["mythril"]
-                if mythril_cfg.get("enabled"):
-                    config.setdefault("tools", {}).setdefault("mythril", {})["enabled"] = True
+                if "enabled" in mythril_cfg:
+                    config.setdefault("tools", {}).setdefault("mythril", {})["enabled"] = mythril_cfg["enabled"]
                 if mythril_cfg.get("targets"):
                     config["mythril_targets"] = mythril_cfg["targets"]
                 if mythril_cfg.get("remappings_file"):
