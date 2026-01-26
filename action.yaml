@@ -6,10 +6,6 @@ inputs:
   token:
     description: "GITHUB_TOKEN"
     required: true
-  gemini_api_key:
-    description: "Gemini API Key for AI analysis"
-    required: false
-    default: ""
 
 runs:
   using: "docker"
@@ -17,4 +13,3 @@ runs:
 
   env:
     GITHUB_TOKEN: ${{ inputs.token }}
-    GEMINI_API_KEY: ${{ inputs.gemini_api_key }}
