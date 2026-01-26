@@ -93,3 +93,4 @@ report:
 github:
   post_comment: true                    # Post report as PR comment
   update_existing: true                 # Update existing comment instead of new
+  inline_comments: true                 # Post comments on specific lines

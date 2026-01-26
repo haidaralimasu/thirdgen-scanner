@@ -19,6 +19,7 @@ import yaml
 
 from .aggregator import aggregate_findings
 from .ai_enhancer import enhance_findings
+from .github_inline import post_review_comments
 from .models import AuditReport, Finding
 from .parsers import parse_aderyn, parse_mythril, parse_slither, parse_solhint
 from .report_generator import generate_pr_comment, generate_report
@@ -399,6 +400,12 @@ Summary:
     if not args.no_github and config.get("github", {}).get("post_comment", True):
         pr_comment = generate_pr_comment(report, config)
         post_to_github(pr_comment)
+
+        # Post inline comments on specific lines
+        if config.get("github", {}).get("inline_comments", True):
+            github_token = os.getenv("GITHUB_TOKEN")
+            if github_token:
+                post_review_comments(report, github_token)
 
     print("\n" + "=" * 60)
     print("  SCAN COMPLETE")
