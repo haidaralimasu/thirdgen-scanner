@@ -45,3 +45,49 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 ```
+
+---
+
+## 📊 Dashboard Integration
+
+Track all your scans, findings, and security trends in the **ThirdGen Dashboard**.
+
+### Setup
+
+1. Sign up at [app.thirdgen.security](https://app.thirdgen.security)
+2. Create a team and add your repository
+3. Copy your Team API Key from Settings
+4. Add `THIRDGEN_API_KEY` to your repository secrets
+
+### Updated Workflow
+
+```yaml
+name: Smart Contract Security Scan
+
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  thirdgen-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Security Scanner
+        uses: haidaralimasu/thirdgen-scanner@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          api_key: ${{ secrets.THIRDGEN_API_KEY }}
+```
+
+### Inputs
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `token` | Yes | GitHub token for PR comments |
+| `api_key` | No | ThirdGen API key for dashboard integration |
+| `api_url` | No | Custom API URL (defaults to production) |

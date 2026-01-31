@@ -6,6 +6,13 @@ inputs:
   token:
     description: "GITHUB_TOKEN"
     required: true
+  api_key:
+    description: "ThirdGen API key (from team settings) - enables dashboard integration"
+    required: false
+  api_url:
+    description: "ThirdGen API URL (defaults to production)"
+    required: false
+    default: "https://api.thirdgen.security/api"
 
 runs:
   using: "docker"
@@ -13,3 +20,5 @@ runs:
 
   env:
     GITHUB_TOKEN: ${{ inputs.token }}
+    THIRDGEN_API_KEY: ${{ inputs.api_key }}
+    THIRDGEN_API_URL: ${{ inputs.api_url }}

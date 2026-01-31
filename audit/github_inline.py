@@ -73,30 +73,14 @@ def post_review_comments(report: AuditReport, token: str) -> bool:
         log.warning("GitHub inline: no commit SHA found")
         return False
 
-    # Get changed files in PR
-    changed_files = get_changed_files(owner, repo, pr_number, token)
-    if not changed_files:
-        log.warning("GitHub inline: couldn't get changed files")
-        return False
-
-    # Collect comments for findings in changed files
+    # Collect comments for all findings
     comments = []
 
     all_findings = report.critical + report.high + report.medium + report.low
 
     for finding in all_findings:
-        # Normalize file path (remove leading ./ or src/ variations)
+        # Normalize file path (remove leading ./)
         file_path = finding.file.lstrip("./")
-
-        # Check if file was changed in this PR
-        matched_file = None
-        for changed_file in changed_files:
-            if changed_file.endswith(file_path) or file_path.endswith(changed_file):
-                matched_file = changed_file
-                break
-
-        if not matched_file:
-            continue
 
         if finding.line <= 0:
             continue

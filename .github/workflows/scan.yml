@@ -2,6 +2,10 @@ name: Reusable Security Scan
 
 on:
   workflow_call:
+    secrets:
+      THIRDGEN_API_KEY:
+        description: "ThirdGen API key for dashboard integration"
+        required: false
 
 jobs:
   audit:
@@ -18,3 +22,4 @@ jobs:
         uses: haidaralimasu/thirdgen-scanner@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          api_key: ${{ secrets.THIRDGEN_API_KEY }}

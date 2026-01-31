@@ -20,6 +20,7 @@ import yaml
 
 from .aggregator import aggregate_findings
 from .ai_enhancer import enhance_findings
+from .api_client import send_results_to_dashboard
 from .github_inline import post_review_comments
 from .models import AuditReport, Finding
 from .parsers import parse_aderyn, parse_mythril, parse_slither, parse_solhint
@@ -422,6 +423,9 @@ Summary:
     }))
     print("THIRDGEN_FINDINGS_END")
     print("=" * 60)
+
+    # Send results to ThirdGen dashboard
+    send_results_to_dashboard(report)
 
     # Generate and save full report
     full_report = generate_report(report, config)
