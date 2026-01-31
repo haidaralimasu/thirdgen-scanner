@@ -409,6 +409,13 @@ Summary:
             "is_false_positive": f.is_false_positive,
         })
 
+    # Send results to ThirdGen dashboard BEFORE JSON output to avoid log interleaving
+    send_results_to_dashboard(report)
+
+    # Flush any pending output before JSON markers
+    sys.stdout.flush()
+    sys.stderr.flush()
+
     print("\n" + "=" * 60)
     print("THIRDGEN_FINDINGS_START")
     print(json.dumps({
@@ -423,9 +430,7 @@ Summary:
     }))
     print("THIRDGEN_FINDINGS_END")
     print("=" * 60)
-
-    # Send results to ThirdGen dashboard
-    send_results_to_dashboard(report)
+    sys.stdout.flush()
 
     # Generate and save full report
     full_report = generate_report(report, config)
