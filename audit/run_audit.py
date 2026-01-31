@@ -7,6 +7,7 @@ Usage: python -m audit.run_audit [--config path/to/config.yaml]
 """
 
 import argparse
+import json
 import logging
 import os
 import subprocess
@@ -384,6 +385,43 @@ Summary:
   - Info:     {len(report.informational)}
   - Total:    {report.total}
 """)
+
+    # Print findings as JSON for ThirdGen dashboard to parse from logs
+    all_findings = report.critical + report.high + report.medium + report.low + report.informational
+    findings_json = []
+    for f in all_findings:
+        severity = f.severity.lower()
+        if severity == "informational":
+            severity = "info"
+        findings_json.append({
+            "severity": severity,
+            "title": f.title,
+            "detector_id": f.id,
+            "file_path": f.file,
+            "line_start": f.line,
+            "line_end": f.end_line or f.line,
+            "tool": f.tool,
+            "description": f.description,
+            "ai_analysis": f.impact if f.ai_analyzed else "",
+            "attack_scenario": f.attack_scenario,
+            "suggested_fix": f.suggested_fix,
+            "is_false_positive": f.is_false_positive,
+        })
+
+    print("\n" + "=" * 60)
+    print("THIRDGEN_FINDINGS_START")
+    print(json.dumps({
+        "summary": {
+            "critical": len(report.critical),
+            "high": len(report.high),
+            "medium": len(report.medium),
+            "low": len(report.low),
+            "info": len(report.informational),
+        },
+        "findings": findings_json
+    }))
+    print("THIRDGEN_FINDINGS_END")
+    print("=" * 60)
 
     # Generate and save full report
     full_report = generate_report(report, config)
